@@ -4,15 +4,22 @@ import tempfile
 import csv
 import numpy as np
 import pandas as pd
-from io import StringIO
 import re
- 
+from io import StringIO
+
 # Set page configuration
 st.set_page_config(
     page_title="POS-based MATTR Calculator",
     page_icon="📊",
     layout="wide"
 )
+
+# Main app title and description
+st.title("📊 POS-based MATTR Calculator")
+st.markdown("""
+Upload multiple `.txt` files to calculate Moving Average Type-Token Ratio (MATTR) 
+per Part of Speech category for each file.
+""")
 
 # Create sidebar for app information
 with st.sidebar:
@@ -23,7 +30,7 @@ with st.sidebar:
     
     **Key Features:**
     - Upload multiple text files at once
-    - Customize window size for MATTR calculation
+    - Fixed window size of 11 for MATTR calculation
     - See results as a table
     - Download results as CSV
     
@@ -33,22 +40,6 @@ with st.sidebar:
     - Adjectives (JJ*)
     - Adverbs (RB*)
     """)
-
-# Main app title and description
-st.title("📊 POS-based MATTR Calculator")
-st.markdown("""
-Upload multiple `.txt` files to calculate Moving Average Type-Token Ratio (MATTR) 
-per Part of Speech category for each file.
-""")
-
-# Interface for MATTR window size configuration
-window_size = st.number_input(
-    "MATTR Window Size", 
-    min_value=5, 
-    max_value=100, 
-    value=11,
-    help="The size of the moving window to calculate MATTR. Recommended values range from 10-100."
-)
 
 # Create a toggle for using simple tokenization
 use_simple_processing = st.checkbox(
@@ -195,11 +186,14 @@ if not use_simple_processing:
         st.warning("NLTK import failed. Using simple processing mode instead.")
         use_simple_processing = True
 
-# Calculate MATTR for a list of words
-def calculate_mattr(words, window_size=11):
-    """Calculate Moving Average Type-Token Ratio."""
+# Calculate MATTR for a list of words with fixed window size of 11
+def calculate_mattr(words):
+    """Calculate Moving Average Type-Token Ratio with fixed window size of 11."""
     if not words:
         return 0
+        
+    # Fixed window size of 11
+    window_size = 11
         
     if len(words) < window_size:
         return len(set(words)) / len(words) if words else 0
@@ -274,7 +268,7 @@ if uploaded_files:
                     words = extract_pos(content, prefix)
                     types = len(set(words))
                     tokens = len(words)
-                    mattr = calculate_mattr(words, window_size=window_size)
+                    mattr = calculate_mattr(words)
                     
                     row.extend([types, tokens, f"{mattr:.4f}"])
                     
