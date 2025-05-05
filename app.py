@@ -13,12 +13,32 @@ st.set_page_config(
 )
 
 # Try to load the spaCy model, download if missing
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    st.warning("Downloading the English language model (en_core_web_sm)...")
-    spacy.cli.download("en_core_web_sm")
-    nlp = spacy.load("en_core_web_sm")
+def load_spacy_model():
+    try:
+        # Attempt to load the spaCy model
+        nlp = spacy.load("en_core_web_sm")
+        return nlp
+    except OSError:
+        # If the model is missing, provide an option to download it
+        st.warning("The English language model (en_core_web_sm) is missing.")
+        st.write("Please download the model manually or click the button below to try downloading it.")
+        if st.button("Download en_core_web_sm Model"):
+            try:
+                # Attempt to download the model
+                import spacy.cli
+                spacy.cli.download("en_core_web_sm")
+                nlp = spacy.load("en_core_web_sm")
+                st.success("Model downloaded successfully!")
+                return nlp
+            except Exception as e:
+                st.error(f"Failed to download the model: {str(e)}")
+                return None
+
+# Load the spaCy model
+nlp = load_spacy_model()
+
+if nlp is None:
+    st.stop()  # Stop the app if the model cannot be loaded
 
 # POS tag categories
 pos_categories = {
