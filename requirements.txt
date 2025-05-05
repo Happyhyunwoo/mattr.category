@@ -1,2 +1,5 @@
+streamlit
+nltk
+numpy
 spacy
 en-core-web-sm
