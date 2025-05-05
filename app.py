@@ -1,6 +1,5 @@
 import os
 import csv
-import spacy
 import numpy as np
 import streamlit as st
 from io import StringIO
@@ -12,33 +11,38 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Try to load the spaCy model, download if missing
+# Try to load the spaCy model
+@st.cache_resource
 def load_spacy_model():
     try:
-        # Attempt to load the spaCy model
-        nlp = spacy.load("en_core_web_sm")
-        return nlp
-    except OSError:
-        # If the model is missing, provide an option to download it
-        st.warning("The English language model (en_core_web_sm) is missing.")
-        st.write("Please download the model manually or click the button below to try downloading it.")
-        if st.button("Download en_core_web_sm Model"):
+        import spacy
+        try:
+            # Try to load the model
+            nlp = spacy.load("en_core_web_sm")
+            return nlp
+        except OSError:
+            # If model is missing, download it programmatically
+            st.info("Downloading spaCy model. This may take a moment...")
             try:
-                # Attempt to download the model
                 import spacy.cli
                 spacy.cli.download("en_core_web_sm")
                 nlp = spacy.load("en_core_web_sm")
                 st.success("Model downloaded successfully!")
                 return nlp
             except Exception as e:
-                st.error(f"Failed to download the model: {str(e)}")
+                st.error(f"Failed to download model: {str(e)}")
+                st.error("Please add 'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.5.0/en_core_web_sm-3.5.0-py3-none-any.whl' to your requirements.txt file")
                 return None
+    except Exception as e:
+        st.error(f"Error loading spaCy: {str(e)}")
+        return None
 
 # Load the spaCy model
 nlp = load_spacy_model()
 
 if nlp is None:
-    st.stop()  # Stop the app if the model cannot be loaded
+    st.error("Could not load spaCy model. Please check your requirements.txt file.")
+    st.stop()
 
 # POS tag categories
 pos_categories = {
