@@ -5,15 +5,20 @@ import numpy as np
 import streamlit as st
 from io import StringIO
 
-# Load spaCy model
-nlp = spacy.load("en_core_web_sm")
-
 # Set page config
 st.set_page_config(
     page_title="PLDA - POS Lexical Diversity Analyzer",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Try to load the spaCy model, download if missing
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    st.warning("Downloading the English language model (en_core_web_sm)...")
+    spacy.cli.download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 
 # POS tag categories
 pos_categories = {
@@ -23,10 +28,14 @@ pos_categories = {
     'Adverb': 'ADV'
 }
 
-# Extract words by POS using spaCy
-def extract_pos(text, pos_prefix):
-    doc = nlp(text)
-    return [token.text.lower() for token in doc if token.pos_ == pos_prefix]
+# Extract words by POS
+def extract_pos(text, pos_tag):
+    try:
+        doc = nlp(text)
+        return [token.text.lower() for token in doc if token.pos_ == pos_tag]
+    except Exception as e:
+        st.error(f"spaCy processing error: {str(e)}")
+        return []
 
 # Calculate MATTR for a specific set of words
 def calculate_mattr(words, window_size=11):
@@ -42,8 +51,12 @@ def calculate_category_mattr(category_words, all_words, window_size=11):
 
 # Safe tokenization function with error handling
 def safe_tokenize(text):
-    doc = nlp(text)
-    return [token.text.lower() for token in doc if token.is_alpha]
+    try:
+        doc = nlp(text)
+        return [token.text.lower() for token in doc if token.is_alpha]
+    except Exception as e:
+        st.error(f"spaCy tokenization error: {str(e)}")
+        return []
 
 # App title and description
 st.title("PLDA - POS Lexical Diversity Analyzer")
@@ -168,11 +181,9 @@ if uploaded_files:
             csv_writer = csv.writer(csv_data)
             for row in results:
                 csv_writer.writerow(row)
-
-            # Allow the user to download the CSV file
             st.download_button(
                 label="Download Results as CSV",
                 data=csv_data.getvalue(),
-                file_name="analysis_results.csv",
+                file_name="results.csv",
                 mime="text/csv"
             )
