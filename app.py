@@ -1,13 +1,12 @@
 import streamlit as st
 import os
-import zipfile
 import tempfile
 import csv
 import nltk
 import numpy as np
 from nltk import word_tokenize, pos_tag
 
-# Set up NLTK in a Streamlit-friendly way
+# Set up NLTK
 nltk_data_path = os.path.join(os.getcwd(), "nltk_data")
 os.makedirs(nltk_data_path, exist_ok=True)
 nltk.download('punkt', download_dir=nltk_data_path)
@@ -15,9 +14,9 @@ nltk.download('averaged_perceptron_tagger', download_dir=nltk_data_path)
 nltk.data.path.append(nltk_data_path)
 
 st.title("POS-based MATTR Calculator")
-st.markdown("Upload a **ZIP file** containing `.txt` files. The tool will compute POS-specific MATTR scores for each file.")
+st.markdown("Upload multiple `.txt` files (as if selecting a folder). The app will calculate MATTR per POS category for each file.")
 
-uploaded_zip = st.file_uploader("Upload a ZIP file of `.txt` files", type="zip")
+uploaded_files = st.file_uploader("Upload `.txt` files", type="txt", accept_multiple_files=True)
 
 def extract_pos(text, pos_prefix):
     tokens = word_tokenize(text)
@@ -35,15 +34,8 @@ def calculate_mattr(words, window_size=11):
         ratios.append(ratio)
     return np.mean(ratios)
 
-if uploaded_zip:
+if uploaded_files:
     with tempfile.TemporaryDirectory() as tmpdir:
-        zip_path = os.path.join(tmpdir, "uploaded.zip")
-        with open(zip_path, "wb") as f:
-            f.write(uploaded_zip.read())
-
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(tmpdir)
-
         results_path = os.path.join(tmpdir, "results.csv")
 
         pos_categories = {
@@ -60,19 +52,16 @@ if uploaded_zip:
                 header.extend([f'{pos} Types', f'{pos} Tokens', f'{pos} MATTR'])
             csv_writer.writerow(header)
 
-            for filename in os.listdir(tmpdir):
-                if filename.endswith('.txt'):
-                    file_path = os.path.join(tmpdir, filename)
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    row = [filename]
-                    for pos, prefix in pos_categories.items():
-                        words = extract_pos(content, prefix)
-                        types = len(set(words))
-                        tokens = len(words)
-                        mattr = calculate_mattr(words)
-                        row.extend([types, tokens, f"{mattr:.4f}"])
-                    csv_writer.writerow(row)
+            for uploaded_file in uploaded_files:
+                content = uploaded_file.read().decode('utf-8')
+                row = [uploaded_file.name]
+                for pos, prefix in pos_categories.items():
+                    words = extract_pos(content, prefix)
+                    types = len(set(words))
+                    tokens = len(words)
+                    mattr = calculate_mattr(words)
+                    row.extend([types, tokens, f"{mattr:.4f}"])
+                csv_writer.writerow(row)
 
         with open(results_path, "rb") as f:
             st.download_button(
