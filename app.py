@@ -3,21 +3,26 @@
 
 # In[2]:
 
-import nltk
-nltk.download('punkt')
-nltk.download('averaged_perceptron_tagger')
-
+import streamlit as st
 import os
+import zipfile
+import tempfile
 import csv
 import nltk
-from nltk import word_tokenize, pos_tag
 import numpy as np
-import streamlit as st
-from io import StringIO
+from nltk import word_tokenize, pos_tag
 
-# Download required NLTK data
-nltk.download('punkt', quiet=True)
-nltk.download('averaged_perceptron_tagger', quiet=True)
+# Set up NLTK in a Streamlit-friendly way
+nltk_data_path = os.path.join(os.getcwd(), "nltk_data")
+os.makedirs(nltk_data_path, exist_ok=True)
+nltk.download('punkt', download_dir=nltk_data_path)
+nltk.download('averaged_perceptron_tagger', download_dir=nltk_data_path)
+nltk.data.path.append(nltk_data_path)
+
+st.title("POS-based MATTR Calculator")
+st.markdown("Upload a **ZIP file** containing `.txt` files. The tool will compute POS-specific MATTR scores for each file.")
+
+uploaded_zip = st.file_uploader("Upload a ZIP file of `.txt` files", type="zip")
 
 # Function to extract POS tags
 def extract_pos(text, pos_prefix):
