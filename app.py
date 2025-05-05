@@ -26,16 +26,13 @@ def download_nltk_resources():
     except LookupError:
         nltk.download('punkt', download_dir=nltk_data_dir, quiet=True)
     try:
-        nltk.data.find('tokenizers/punkt_tab')
-    except LookupError:
-        nltk.download('punkt_tab', download_dir=nltk_data_dir, quiet=True)
-    try:
         nltk.data.find('taggers/averaged_perceptron_tagger.zip')
     except LookupError:
         nltk.download('averaged_perceptron_tagger', download_dir=nltk_data_dir, quiet=True)
     
     nltk.data.path.append(nltk_data_dir)
 
+# Call download_nltk_resources to ensure resources are available
 download_nltk_resources()
 
 # POS tag categories
@@ -207,17 +204,10 @@ if uploaded_files:
             csv_writer = csv.writer(csv_data)
             for row in results:
                 csv_writer.writerow(row)
-            
+
             st.download_button(
                 label="Download Results as CSV",
                 data=csv_data.getvalue(),
-                file_name="mattr_results.csv",
+                file_name="analysis_results.csv",
                 mime="text/csv"
             )
-
-else:
-    st.info("Please upload one or more .txt files to analyze.")
-
-# Footer
-st.markdown("---")
-st.markdown("*PLDA - POS Lexical Diversity Analyzer © 2025*")
