@@ -1,18 +1,11 @@
 import streamlit as st
 import os
-import sys
 import tempfile
 import csv
-import nltk
 import numpy as np
 import pandas as pd
-from nltk import word_tokenize, pos_tag
 from io import StringIO
-import logging
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import re
 
 # Set page configuration
 st.set_page_config(
@@ -57,6 +50,13 @@ window_size = st.number_input(
     help="The size of the moving window to calculate MATTR. Recommended values range from 10-100."
 )
 
+# Create a toggle for using simple tokenization
+use_simple_processing = st.checkbox(
+    "Use simple tokenization (recommended if NLTK errors occur)",
+    value=True,
+    help="Enable this option if you encounter NLTK-related errors"
+)
+
 # File uploader
 uploaded_files = st.file_uploader(
     "Upload `.txt` files", 
@@ -65,77 +65,142 @@ uploaded_files = st.file_uploader(
     help="Select multiple text files to analyze"
 )
 
-# Setup NLTK data path
-@st.cache_resource
-def setup_nltk():
-    # Define and create NLTK data path
-    nltk_data_path = os.path.join(os.getcwd(), "nltk_data")
-    os.makedirs(nltk_data_path, exist_ok=True)
-    
-    # Set NLTK data path environment variable
-    os.environ['NLTK_DATA'] = nltk_data_path
-    
-    # Add the path to NLTK's search paths
-    nltk.data.path.insert(0, nltk_data_path)
-    
-    # Download required resources
-    for resource in ['punkt', 'averaged_perceptron_tagger']:
-        try:
-            nltk.download(resource, download_dir=nltk_data_path, quiet=True)
-        except Exception as e:
-            st.warning(f"Failed to download NLTK resource '{resource}': {str(e)}")
-            st.info("Trying alternative download method...")
-            try:
-                import subprocess
-                subprocess.check_call([
-                    'python', '-m', 'nltk.downloader', 
-                    '-d', nltk_data_path, resource
-                ])
-                st.success(f"Downloaded {resource} using alternative method")
-            except Exception as e2:
-                st.error(f"All download attempts failed for '{resource}': {str(e2)}")
-    
-    # Verify resources exist
-    try:
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('taggers/averaged_perceptron_tagger')
-        st.success("NLTK resources loaded successfully")
-    except LookupError as e:
-        st.error(f"NLTK resource verification failed: {str(e)}")
-        
-    return True
+# Simple tokenization and POS tagging functions that don't rely on NLTK
+def simple_tokenize(text):
+    """Tokenize text using simple regex patterns."""
+    # Convert to lowercase and strip punctuation
+    text = text.lower()
+    # Split on whitespace and remove empty strings
+    tokens = re.findall(r'\b[a-z0-9]+\b', text)
+    return tokens
 
-# Extract words with specific POS tag prefix
-def extract_pos(text, pos_prefix):
+# Simple rule-based POS tagging
+def simple_pos_categorize(token):
+    """Categorize token into basic POS categories using simple rules."""
+    # Common verb endings
+    if token.endswith(('ed', 'ing', 'ize', 'ise', 'ate', 'en')) or token in [
+        'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+        'have', 'has', 'had', 'do', 'does', 'did', 'go', 'goes', 'went',
+        'see', 'saw', 'seen', 'come', 'came', 'run', 'ran', 'get', 'got',
+        'make', 'made', 'take', 'took', 'give', 'gave', 'live', 'say',
+        'said', 'tell', 'told', 'find', 'found', 'think', 'thought',
+        'know', 'knew', 'want', 'put', 'read', 'write', 'wrote'
+    ]:
+        return 'VB'  # Verb
+    
+    # Common adjective endings
+    elif token.endswith(('able', 'ible', 'al', 'ful', 'ic', 'ive', 'less', 'ous')) or token in [
+        'good', 'bad', 'new', 'old', 'high', 'low', 'big', 'small', 'large',
+        'little', 'long', 'short', 'great', 'best', 'better', 'worst', 'worse',
+        'nice', 'fine', 'happy', 'sad', 'hot', 'cold', 'warm', 'cool', 'slow',
+        'fast', 'easy', 'hard', 'early', 'late', 'young', 'red', 'blue', 'green',
+        'black', 'white', 'dark', 'light', 'rich', 'poor', 'real', 'true', 'false'
+    ]:
+        return 'JJ'  # Adjective
+    
+    # Common adverb endings
+    elif token.endswith('ly') or token in [
+        'very', 'too', 'so', 'quite', 'well', 'now', 'then', 'here', 'there',
+        'just', 'only', 'also', 'even', 'still', 'again', 'already', 'always',
+        'never', 'often', 'sometimes', 'usually', 'today', 'tomorrow', 'yesterday',
+        'soon', 'later', 'early', 'fast', 'hard', 'away', 'back', 'up', 'down',
+        'in', 'out', 'off', 'on', 'over', 'under'
+    ]:
+        return 'RB'  # Adverb
+    
+    # Common noun endings
+    elif token.endswith(('tion', 'sion', 'ment', 'ness', 'ity', 'ship', 'dom', 'er', 'or', 'ian', 'ist')) or token in [
+        'time', 'year', 'day', 'man', 'woman', 'child', 'person', 'world', 'life',
+        'hand', 'part', 'place', 'case', 'group', 'company', 'party', 'school',
+        'country', 'state', 'family', 'money', 'night', 'water', 'thing', 'name',
+        'book', 'room', 'area', 'point', 'house', 'home', 'job', 'line', 'end',
+        'city', 'car', 'team', 'word', 'game', 'food', 'paper', 'music', 'problem'
+    ]:
+        return 'NN'  # Noun
+    
+    # Default case - use most common POS category: nouns
+    else:
+        # Most unknown words are likely nouns
+        return 'NN'  # Default to noun
+
+# Extract words with specific POS tag prefix (using simple categorization)
+def extract_pos_simple(text, pos_prefix):
+    """Extract words with a specific POS tag prefix using simple rules."""
     try:
-        # Ensure text is properly formatted
         if not isinstance(text, str):
             text = str(text)
         
-        # Handle potential errors in tokenization
-        try:
-            tokens = word_tokenize(text)
-        except LookupError:
-            # Fallback tokenization if NLTK resources fail
-            st.warning("Using fallback tokenization method")
-            tokens = text.split()
-        
-        # Handle potential errors in POS tagging
-        try:
-            tagged = pos_tag(tokens)
-        except LookupError:
-            # If POS tagging fails, return an empty list
-            st.error("POS tagging failed - NLTK resources may not be properly loaded")
-            return []
-            
-        words = [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
+        tokens = simple_tokenize(text)
+        tagged = [(token, simple_pos_categorize(token)) for token in tokens]
+        words = [word for word, tag in tagged if tag.startswith(pos_prefix)]
         return words
     except Exception as e:
-        st.error(f"Error in extract_pos: {str(e)}")
+        st.error(f"Error in extract_pos_simple: {str(e)}")
         return []
+
+# Try to import and configure NLTK if advanced processing is requested
+if not use_simple_processing:
+    try:
+        # Use try/except to handle NLTK import
+        with st.spinner("Loading NLTK resources..."):
+            import nltk
+            from nltk import word_tokenize, pos_tag
+            
+            # Set up NLTK data path
+            nltk_data_path = os.path.join(os.getcwd(), "nltk_data")
+            os.makedirs(nltk_data_path, exist_ok=True)
+            
+            # Configure NLTK data path
+            nltk.data.path.insert(0, nltk_data_path)
+            
+            # Download required resources with proper error handling
+            try:
+                nltk.download('punkt', download_dir=nltk_data_path, quiet=True)
+                nltk.download('averaged_perceptron_tagger', download_dir=nltk_data_path, quiet=True)
+                st.success("NLTK resources loaded successfully")
+                
+                # Test tokenization
+                test_text = "This is a test sentence."
+                test_tokens = word_tokenize(test_text)
+                test_tags = pos_tag(test_tokens)
+                
+                if len(test_tags) > 0:
+                    st.success("NLTK tokenization and tagging is working")
+                else:
+                    st.warning("NLTK tokenization test failed, falling back to simple processing")
+                    use_simple_processing = True
+                
+            except Exception as e:
+                st.warning(f"Failed to download NLTK resources: {str(e)}")
+                st.info("Falling back to simple processing mode")
+                use_simple_processing = True
+                
+            # Define the advanced POS extraction function
+            def extract_pos_nltk(text, pos_prefix):
+                """Extract words with specific POS tag prefix using NLTK."""
+                try:
+                    if not isinstance(text, str):
+                        text = str(text)
+                    
+                    tokens = word_tokenize(text)
+                    tagged = pos_tag(tokens)
+                    words = [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
+                    return words
+                except Exception as e:
+                    st.warning(f"NLTK processing error: {str(e)}")
+                    # Fall back to simple processing if NLTK fails
+                    return extract_pos_simple(text, pos_prefix)
+                
+    except ImportError:
+        st.warning("NLTK import failed. Using simple processing mode instead.")
+        use_simple_processing = True
 
 # Calculate MATTR for a list of words
 def calculate_mattr(words, window_size=11):
+    """Calculate Moving Average Type-Token Ratio."""
+    if not words:
+        return 0
+        
     if len(words) < window_size:
         return len(set(words)) / len(words) if words else 0
     
@@ -147,56 +212,6 @@ def calculate_mattr(words, window_size=11):
     
     return np.mean(ratios) if ratios else 0
 
-# Initialize NLTK - wrapped in a try-except block
-try:
-    st.info("Initializing NLTK resources...")
-    if setup_nltk():
-        st.success("NLTK setup completed successfully")
-    else:
-        st.warning("NLTK setup may not have completed successfully")
-except Exception as e:
-    st.error(f"Error initializing NLTK: {str(e)}")
-    
-    # Additional diagnostics
-    st.write("System information:")
-    st.code(f"Python version: {sys.version}")
-    st.code(f"NLTK version: {nltk.__version__}")
-    st.code(f"Current working directory: {os.getcwd()}")
-    
-    # Force download without using the NLTK downloader API
-    st.info("Attempting manual resource download...")
-    try:
-        import urllib.request
-        import zipfile
-        
-        # Create directories if they don't exist
-        nltk_data = os.path.join(os.getcwd(), "nltk_data")
-        os.makedirs(os.path.join(nltk_data, "tokenizers"), exist_ok=True)
-        os.makedirs(os.path.join(nltk_data, "taggers"), exist_ok=True)
-        
-        # Download punkt
-        punkt_url = "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/tokenizers/punkt.zip"
-        punkt_zip = os.path.join(nltk_data, "punkt.zip")
-        urllib.request.urlretrieve(punkt_url, punkt_zip)
-        with zipfile.ZipFile(punkt_zip, 'r') as zip_ref:
-            zip_ref.extractall(os.path.join(nltk_data, "tokenizers"))
-        st.success("Downloaded punkt tokenizer manually")
-        
-        # Download averaged_perceptron_tagger
-        tagger_url = "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/taggers/averaged_perceptron_tagger.zip"
-        tagger_zip = os.path.join(nltk_data, "tagger.zip")
-        urllib.request.urlretrieve(tagger_url, tagger_zip)
-        with zipfile.ZipFile(tagger_zip, 'r') as zip_ref:
-            zip_ref.extractall(os.path.join(nltk_data, "taggers"))
-        st.success("Downloaded perceptron tagger manually")
-        
-        # Add to path
-        nltk.data.path.insert(0, nltk_data)
-        
-    except Exception as download_error:
-        st.error(f"Manual download failed: {str(download_error)}")
-        st.warning("The application may not function correctly")
-
 # Define POS categories
 pos_categories = {
     'Verb': 'VB',
@@ -204,6 +219,15 @@ pos_categories = {
     'Adjective': 'JJ',
     'Adverb': 'RB'
 }
+
+# Select the appropriate POS extraction function based on user choice
+extract_pos = extract_pos_simple if use_simple_processing else extract_pos_nltk
+
+# Processing indication
+if use_simple_processing:
+    st.info("Using simple rule-based tokenization and POS tagging")
+else:
+    st.info("Using NLTK for tokenization and POS tagging")
 
 if uploaded_files:
     st.write(f"Processing {len(uploaded_files)} file(s)...")
@@ -230,7 +254,6 @@ if uploaded_files:
                 # Read file content with robust error handling
                 try:
                     content = uploaded_file.read().decode('utf-8', errors='replace')
-                    logger.info(f"Successfully read file: {uploaded_file.name}")
                 except Exception as read_error:
                     st.warning(f"Error reading {uploaded_file.name}: {str(read_error)}")
                     st.info("Attempting alternative reading method...")
