@@ -63,7 +63,7 @@ def calculate_mattr(words, window_size=11):
         return len(set(words)) / len(words) if words else 0
     return np.mean([len(set(words[i:i+window_size])) / window_size for i in range(len(words) - window_size + 1)])
 
-# Calculate MATTR for a specific category (e.g., verbs, nouns) relative to all words tokens
+# Calculate MATTR for a specific category relative to all words tokens
 def calculate_category_mattr(category_words, all_words, window_size=11):
     if len(category_words) < window_size or len(all_words) < window_size:
         return len(set(category_words)) / len(all_words) if all_words else 0
@@ -201,9 +201,17 @@ if uploaded_files:
             csv_writer = csv.writer(csv_data)
             for row in results:
                 csv_writer.writerow(row)
+            
             st.download_button(
                 label="Download Results as CSV",
                 data=csv_data.getvalue(),
-                file_name="results.csv",
+                file_name="mattr_results.csv",
                 mime="text/csv"
             )
+
+else:
+    st.info("Please upload one or more .txt files to analyze.")
+
+# Footer
+st.markdown("---")
+st.markdown("*PLDA - POS Lexical Diversity Analyzer © 2025*")
