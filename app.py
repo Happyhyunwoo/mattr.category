@@ -13,11 +13,28 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Create NLTK data directory and add to path
+nltk_data_dir = os.path.expanduser('~/nltk_data')
+if not os.path.exists(nltk_data_dir):
+    os.makedirs(nltk_data_dir)
+
 # Download required NLTK resources
 @st.cache_resource
 def download_nltk_resources():
-    nltk.download('punkt', quiet=True)
-    nltk.download('averaged_perceptron_tagger', quiet=True)
+    try:
+        nltk.data.find('tokenizers/punkt.zip')
+    except LookupError:
+        nltk.download('punkt', download_dir=nltk_data_dir, quiet=True)
+    try:
+        nltk.data.find('tokenizers/punkt_tab')
+    except LookupError:
+        nltk.download('punkt_tab', download_dir=nltk_data_dir, quiet=True)
+    try:
+        nltk.data.find('taggers/averaged_perceptron_tagger.zip')
+    except LookupError:
+        nltk.download('averaged_perceptron_tagger', download_dir=nltk_data_dir, quiet=True)
+    
+    nltk.data.path.append(nltk_data_dir)
 
 download_nltk_resources()
 
@@ -31,9 +48,18 @@ pos_categories = {
 
 # Extract words by POS
 def extract_pos(text, pos_prefix):
-    tokens = word_tokenize(text)
-    tagged = pos_tag(tokens)
-    return [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
+    try:
+        tokens = word_tokenize(text)
+        tagged = pos_tag(tokens)
+        return [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
+    except LookupError as e:
+        st.error(f"NLTK resource error: {str(e)}")
+        st.info("Trying to download missing resources...")
+        download_nltk_resources()
+        # Try again after downloading
+        tokens = word_tokenize(text)
+        tagged = pos_tag(tokens)
+        return [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
 
 # Calculate MATTR for a specific set of words
 def calculate_mattr(words, window_size=11):
@@ -46,6 +72,17 @@ def calculate_category_mattr(category_words, all_words, window_size=11):
     if len(category_words) < window_size or len(all_words) < window_size:
         return len(set(category_words)) / len(all_words) if all_words else 0
     return np.mean([len(set(category_words[i:i+window_size])) / window_size for i in range(len(category_words) - window_size + 1)])
+
+# Safe tokenization function with error handling
+def safe_tokenize(text):
+    try:
+        return [word.lower() for word in word_tokenize(text) if word.isalpha()]
+    except LookupError as e:
+        st.error(f"NLTK resource error: {str(e)}")
+        st.info("Trying to download missing resources...")
+        download_nltk_resources()
+        # Try again after downloading
+        return [word.lower() for word in word_tokenize(text) if word.isalpha()]
 
 # App title and description
 st.title("PLDA - POS Lexical Diversity Analyzer")
@@ -120,39 +157,43 @@ if uploaded_files:
             results.append(header)
             
             for i, file in enumerate(uploaded_files):
-                file_content = file.read().decode('utf-8')
-                status_text.text(f"Processing: {file.name}")
-                progress_bar.progress((i + 1) / len(uploaded_files))
-                
-                row = [file.name]
-                all_words_tokens = None
-                
-                # Option 1: All Words MATTR calculation
-                if 'All words' in selected_categories:
-                    all_words_tokens = [word.lower() for word in word_tokenize(file_content) if word.isalpha()]
-                    types = len(set(all_words_tokens))
-                    tokens = len(all_words_tokens)
-                    mattr = calculate_mattr(all_words_tokens, window_size)
-                    row.extend([types, tokens, round(mattr, 4)])
-                else:
-                    # Still need to calculate all_words for category MATTRs
-                    all_words_tokens = [word.lower() for word in word_tokenize(file_content) if word.isalpha()]
-                
-                for pos in pos_categories:
-                    if pos in selected_categories:
-                        words = extract_pos(file_content, pos_categories[pos])
-                        types = len(set(words))
-                        tokens = len(words)
-                        
-                        # MATTR for the category
-                        mattr = calculate_mattr(words, window_size)
-                        
-                        # MATTR for the category using all words tokens
-                        mattr_category = calculate_category_mattr(words, all_words_tokens, window_size)
-                        
-                        row.extend([types, tokens, round(mattr, 4), round(mattr_category, 4)])
-                
-                results.append(row)
+                try:
+                    file_content = file.read().decode('utf-8')
+                    status_text.text(f"Processing: {file.name}")
+                    progress_bar.progress((i + 1) / len(uploaded_files))
+                    
+                    row = [file.name]
+                    all_words_tokens = None
+                    
+                    # Option 1: All Words MATTR calculation
+                    if 'All words' in selected_categories:
+                        all_words_tokens = safe_tokenize(file_content)
+                        types = len(set(all_words_tokens))
+                        tokens = len(all_words_tokens)
+                        mattr = calculate_mattr(all_words_tokens, window_size)
+                        row.extend([types, tokens, round(mattr, 4)])
+                    else:
+                        # Still need to calculate all_words for category MATTRs
+                        all_words_tokens = safe_tokenize(file_content)
+                    
+                    for pos in pos_categories:
+                        if pos in selected_categories:
+                            words = extract_pos(file_content, pos_categories[pos])
+                            types = len(set(words))
+                            tokens = len(words)
+                            
+                            # MATTR for the category
+                            mattr = calculate_mattr(words, window_size)
+                            
+                            # MATTR for the category using all words tokens
+                            mattr_category = calculate_category_mattr(words, all_words_tokens, window_size)
+                            
+                            row.extend([types, tokens, round(mattr, 4), round(mattr_category, 4)])
+                    
+                    results.append(row)
+                except Exception as e:
+                    st.error(f"Error processing file {file.name}: {str(e)}")
+                    continue
             
             # Display results
             status_text.text("Analysis Complete!")
