@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import sys
 import tempfile
 import csv
 import nltk
@@ -7,6 +8,11 @@ import numpy as np
 import pandas as pd
 from nltk import word_tokenize, pos_tag
 from io import StringIO
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Set page configuration
 st.set_page_config(
@@ -62,19 +68,71 @@ uploaded_files = st.file_uploader(
 # Setup NLTK data path
 @st.cache_resource
 def setup_nltk():
+    # Define and create NLTK data path
     nltk_data_path = os.path.join(os.getcwd(), "nltk_data")
     os.makedirs(nltk_data_path, exist_ok=True)
-    nltk.download('punkt', download_dir=nltk_data_path, quiet=True)
-    nltk.download('averaged_perceptron_tagger', download_dir=nltk_data_path, quiet=True)
-    nltk.data.path.append(nltk_data_path)
+    
+    # Set NLTK data path environment variable
+    os.environ['NLTK_DATA'] = nltk_data_path
+    
+    # Add the path to NLTK's search paths
+    nltk.data.path.insert(0, nltk_data_path)
+    
+    # Download required resources
+    for resource in ['punkt', 'averaged_perceptron_tagger']:
+        try:
+            nltk.download(resource, download_dir=nltk_data_path, quiet=True)
+        except Exception as e:
+            st.warning(f"Failed to download NLTK resource '{resource}': {str(e)}")
+            st.info("Trying alternative download method...")
+            try:
+                import subprocess
+                subprocess.check_call([
+                    'python', '-m', 'nltk.downloader', 
+                    '-d', nltk_data_path, resource
+                ])
+                st.success(f"Downloaded {resource} using alternative method")
+            except Exception as e2:
+                st.error(f"All download attempts failed for '{resource}': {str(e2)}")
+    
+    # Verify resources exist
+    try:
+        nltk.data.find('tokenizers/punkt')
+        nltk.data.find('taggers/averaged_perceptron_tagger')
+        st.success("NLTK resources loaded successfully")
+    except LookupError as e:
+        st.error(f"NLTK resource verification failed: {str(e)}")
+        
     return True
 
 # Extract words with specific POS tag prefix
 def extract_pos(text, pos_prefix):
-    tokens = word_tokenize(text)
-    tagged = pos_tag(tokens)
-    words = [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
-    return words
+    try:
+        # Ensure text is properly formatted
+        if not isinstance(text, str):
+            text = str(text)
+        
+        # Handle potential errors in tokenization
+        try:
+            tokens = word_tokenize(text)
+        except LookupError:
+            # Fallback tokenization if NLTK resources fail
+            st.warning("Using fallback tokenization method")
+            tokens = text.split()
+        
+        # Handle potential errors in POS tagging
+        try:
+            tagged = pos_tag(tokens)
+        except LookupError:
+            # If POS tagging fails, return an empty list
+            st.error("POS tagging failed - NLTK resources may not be properly loaded")
+            return []
+            
+        words = [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
+        return words
+    except Exception as e:
+        st.error(f"Error in extract_pos: {str(e)}")
+        return []
 
 # Calculate MATTR for a list of words
 def calculate_mattr(words, window_size=11):
@@ -89,8 +147,55 @@ def calculate_mattr(words, window_size=11):
     
     return np.mean(ratios) if ratios else 0
 
-# Initialize NLTK
-setup_nltk()
+# Initialize NLTK - wrapped in a try-except block
+try:
+    st.info("Initializing NLTK resources...")
+    if setup_nltk():
+        st.success("NLTK setup completed successfully")
+    else:
+        st.warning("NLTK setup may not have completed successfully")
+except Exception as e:
+    st.error(f"Error initializing NLTK: {str(e)}")
+    
+    # Additional diagnostics
+    st.write("System information:")
+    st.code(f"Python version: {sys.version}")
+    st.code(f"NLTK version: {nltk.__version__}")
+    st.code(f"Current working directory: {os.getcwd()}")
+    
+    # Force download without using the NLTK downloader API
+    st.info("Attempting manual resource download...")
+    try:
+        import urllib.request
+        import zipfile
+        
+        # Create directories if they don't exist
+        nltk_data = os.path.join(os.getcwd(), "nltk_data")
+        os.makedirs(os.path.join(nltk_data, "tokenizers"), exist_ok=True)
+        os.makedirs(os.path.join(nltk_data, "taggers"), exist_ok=True)
+        
+        # Download punkt
+        punkt_url = "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/tokenizers/punkt.zip"
+        punkt_zip = os.path.join(nltk_data, "punkt.zip")
+        urllib.request.urlretrieve(punkt_url, punkt_zip)
+        with zipfile.ZipFile(punkt_zip, 'r') as zip_ref:
+            zip_ref.extractall(os.path.join(nltk_data, "tokenizers"))
+        st.success("Downloaded punkt tokenizer manually")
+        
+        # Download averaged_perceptron_tagger
+        tagger_url = "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/taggers/averaged_perceptron_tagger.zip"
+        tagger_zip = os.path.join(nltk_data, "tagger.zip")
+        urllib.request.urlretrieve(tagger_url, tagger_zip)
+        with zipfile.ZipFile(tagger_zip, 'r') as zip_ref:
+            zip_ref.extractall(os.path.join(nltk_data, "taggers"))
+        st.success("Downloaded perceptron tagger manually")
+        
+        # Add to path
+        nltk.data.path.insert(0, nltk_data)
+        
+    except Exception as download_error:
+        st.error(f"Manual download failed: {str(download_error)}")
+        st.warning("The application may not function correctly")
 
 # Define POS categories
 pos_categories = {
@@ -122,8 +227,21 @@ if uploaded_files:
                 # Update progress
                 progress_bar.progress((i + 1) / len(uploaded_files))
                 
-                # Read file content
-                content = uploaded_file.read().decode('utf-8', errors='replace')
+                # Read file content with robust error handling
+                try:
+                    content = uploaded_file.read().decode('utf-8', errors='replace')
+                    logger.info(f"Successfully read file: {uploaded_file.name}")
+                except Exception as read_error:
+                    st.warning(f"Error reading {uploaded_file.name}: {str(read_error)}")
+                    st.info("Attempting alternative reading method...")
+                    try:
+                        uploaded_file.seek(0)  # Reset file pointer
+                        content = ""
+                        for line in uploaded_file:
+                            content += line.decode('utf-8', errors='replace')
+                    except Exception as alt_error:
+                        st.error(f"All reading attempts failed for {uploaded_file.name}")
+                        content = ""  # Use empty content to continue processing
                 
                 # Process file
                 row = [uploaded_file.name]
