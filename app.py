@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[2]:
-
 import streamlit as st
 import os
 import zipfile
@@ -24,76 +19,65 @@ st.markdown("Upload a **ZIP file** containing `.txt` files. The tool will comput
 
 uploaded_zip = st.file_uploader("Upload a ZIP file of `.txt` files", type="zip")
 
-# Function to extract POS tags
 def extract_pos(text, pos_prefix):
     tokens = word_tokenize(text)
     tagged = pos_tag(tokens)
     words = [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
     return words
 
-# Function to calculate MATTR (Moving Average Type-Token Ratio)
 def calculate_mattr(words, window_size=11):
     if len(words) < window_size:
         return len(set(words)) / len(words) if words else 0
-    
     ratios = []
     for i in range(len(words) - window_size + 1):
-        window = words[i:i+window_size]
-        ratio = len(set(window)) / window_size  # Number of unique words in the window divided by the window size
+        window = words[i:i + window_size]
+        ratio = len(set(window)) / window_size
         ratios.append(ratio)
-    
-    return np.mean(ratios)  # Average of all the ratios
+    return np.mean(ratios)
 
-# Streamlit UI components
-st.title("Text File Analysis Tool")
+if uploaded_zip:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "uploaded.zip")
+        with open(zip_path, "wb") as f:
+            f.write(uploaded_zip.read())
 
-# Upload a folder of text files
-uploaded_files = st.file_uploader("Upload Text Files", type=["txt"], accept_multiple_files=True)
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(tmpdir)
 
-# POS categories
-pos_categories = {
-    'Verb': 'VB',
-    'Noun': 'NN',
-    'Adjective': 'JJ',
-    'Adverb': 'RB'
-}
+        results_path = os.path.join(tmpdir, "results.csv")
 
-if uploaded_files:
-    # Create a StringIO object to hold the CSV data
-    output = StringIO()
-    csv_writer = csv.writer(output)
+        pos_categories = {
+            'Verb': 'VB',
+            'Noun': 'NN',
+            'Adjective': 'JJ',
+            'Adverb': 'RB'
+        }
 
-    # Write the header
-    header = ['File Name']
-    for pos in pos_categories:
-        header.extend([f'{pos} Types', f'{pos} Tokens', f'{pos} MATTR'])
-    csv_writer.writerow(header)
-    
-    # Process each uploaded file
-    for uploaded_file in uploaded_files:
-        content = uploaded_file.getvalue().decode("utf-8")
-        filename = uploaded_file.name
+        with open(results_path, 'w', newline='', encoding='utf-8') as results_file:
+            csv_writer = csv.writer(results_file)
+            header = ['File Name']
+            for pos in pos_categories:
+                header.extend([f'{pos} Types', f'{pos} Tokens', f'{pos} MATTR'])
+            csv_writer.writerow(header)
 
-        # Process each POS category for the current file
-        row = [filename]
-        for pos, prefix in pos_categories.items():
-            words = extract_pos(content, prefix)
-            types = len(set(words))  # Count unique types (distinct words)
-            tokens = len(words)  # Count total tokens (all words)
-            mattr = calculate_mattr(words)  # Calculate MATTR
-            row.extend([types, tokens, f"{mattr:.4f}"])  # Append the results to the row
-        
-        # Write the data row to the CSV output
-        csv_writer.writerow(row)
-    
-    # Provide the user with an option to download the result CSV file
-    output.seek(0)  # Reset the StringIO object to the beginning
-    st.download_button(
-        label="Download Results CSV",
-        data=output.getvalue(),
-        file_name="results.csv",
-        mime="text/csv"
-    )
+            for filename in os.listdir(tmpdir):
+                if filename.endswith('.txt'):
+                    file_path = os.path.join(tmpdir, filename)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    row = [filename]
+                    for pos, prefix in pos_categories.items():
+                        words = extract_pos(content, prefix)
+                        types = len(set(words))
+                        tokens = len(words)
+                        mattr = calculate_mattr(words)
+                        row.extend([types, tokens, f"{mattr:.4f}"])
+                    csv_writer.writerow(row)
 
-    st.success("Analysis Complete! You can download the results.")
-
+        with open(results_path, "rb") as f:
+            st.download_button(
+                label="Download Results as CSV",
+                data=f,
+                file_name="results.csv",
+                mime="text/csv"
+            )
