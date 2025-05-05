@@ -1,10 +1,12 @@
 import os
 import csv
-import nltk
+import spacy
 import numpy as np
 import streamlit as st
-from nltk import word_tokenize, pos_tag
 from io import StringIO
+
+# Load spaCy model
+nlp = spacy.load("en_core_web_sm")
 
 # Set page config
 st.set_page_config(
@@ -13,50 +15,18 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Create NLTK data directory and add to path
-nltk_data_dir = os.path.expanduser('~/nltk_data')
-if not os.path.exists(nltk_data_dir):
-    os.makedirs(nltk_data_dir)
-
-# Download required NLTK resources
-@st.cache_resource
-def download_nltk_resources():
-    try:
-        nltk.data.find('tokenizers/punkt.zip')
-    except LookupError:
-        nltk.download('punkt', download_dir=nltk_data_dir, quiet=True)
-    try:
-        nltk.data.find('taggers/averaged_perceptron_tagger.zip')
-    except LookupError:
-        nltk.download('averaged_perceptron_tagger', download_dir=nltk_data_dir, quiet=True)
-    
-    nltk.data.path.append(nltk_data_dir)
-
-# Call download_nltk_resources to ensure resources are available
-download_nltk_resources()
-
 # POS tag categories
 pos_categories = {
-    'Verb': 'VB',
-    'Noun': 'NN',
-    'Adjective': 'JJ',
-    'Adverb': 'RB'
+    'Verb': 'VERB',
+    'Noun': 'NOUN',
+    'Adjective': 'ADJ',
+    'Adverb': 'ADV'
 }
 
-# Extract words by POS
+# Extract words by POS using spaCy
 def extract_pos(text, pos_prefix):
-    try:
-        tokens = word_tokenize(text)
-        tagged = pos_tag(tokens)
-        return [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
-    except LookupError as e:
-        st.error(f"NLTK resource error: {str(e)}")
-        st.info("Trying to download missing resources...")
-        download_nltk_resources()
-        # Try again after downloading
-        tokens = word_tokenize(text)
-        tagged = pos_tag(tokens)
-        return [word.lower() for word, tag in tagged if tag.startswith(pos_prefix)]
+    doc = nlp(text)
+    return [token.text.lower() for token in doc if token.pos_ == pos_prefix]
 
 # Calculate MATTR for a specific set of words
 def calculate_mattr(words, window_size=11):
@@ -72,14 +42,8 @@ def calculate_category_mattr(category_words, all_words, window_size=11):
 
 # Safe tokenization function with error handling
 def safe_tokenize(text):
-    try:
-        return [word.lower() for word in word_tokenize(text) if word.isalpha()]
-    except LookupError as e:
-        st.error(f"NLTK resource error: {str(e)}")
-        st.info("Trying to download missing resources...")
-        download_nltk_resources()
-        # Try again after downloading
-        return [word.lower() for word in word_tokenize(text) if word.isalpha()]
+    doc = nlp(text)
+    return [token.text.lower() for token in doc if token.is_alpha]
 
 # App title and description
 st.title("PLDA - POS Lexical Diversity Analyzer")
@@ -205,6 +169,7 @@ if uploaded_files:
             for row in results:
                 csv_writer.writerow(row)
 
+            # Allow the user to download the CSV file
             st.download_button(
                 label="Download Results as CSV",
                 data=csv_data.getvalue(),
